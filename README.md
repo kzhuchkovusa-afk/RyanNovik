@@ -8,27 +8,33 @@ Personalized cognitive-training games for kids. Each child gets a custom hub wit
 - **Database:** SQLite (better-sqlite3) — zero-config, file-based
 - **Auth:** JWT (bcrypt-hashed passwords)
 
-## Quick Start
+## Quick Start (one command)
 
-### 1. Backend
+Requires **Node.js 18+**.
+
 ```bash
-cd server
-npm install
-cp .env.example .env
-npm run seed   # creates DB schema + admin user
-npm run dev    # starts on :3001
+npm install            # installs concurrently
+npm run setup          # installs server + client, seeds the SQLite DB
+npm start              # runs backend (:3001) + frontend (:5173) together
 ```
 
-Default admin: `admin / admin123`
+Then open **http://localhost:5173**.
 
-### 2. Frontend
+Default logins:
+- **Admin** — `admin / admin123`
+- **Demo child** — `emma / emma123` (preloaded with 3 dinosaur games)
+
+`Ctrl+C` stops both servers.
+
+### Manual / per-package start (if you prefer)
+
 ```bash
-cd client
-npm install
-npm run dev    # starts on :5173
-```
+# Backend
+cd server && npm install && cp .env.example .env && npm run seed && npm run dev
 
-Open http://localhost:5173
+# Frontend (separate terminal)
+cd client && npm install && npm run dev
+```
 
 ## Roles
 - **Child** — plays games (login: their username/password)
