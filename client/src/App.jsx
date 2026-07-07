@@ -8,6 +8,8 @@ import AdminDashboard from './components/admin/AdminDashboard.jsx';
 import CreateChild from './components/admin/CreateChild.jsx';
 import ManageChild from './components/admin/ManageChild.jsx';
 import ManageGames from './components/admin/ManageGames.jsx';
+import GameHost from './game-host/GameHost.jsx';
+import DevSdkTest from './components/shell/DevSdkTest.jsx';
 import { useAuth } from './lib/auth.jsx';
 
 function Protected({ roles, children }) {
@@ -23,6 +25,13 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
+
+      {/* Game contract — the /game-host route is loaded inside a sandboxed iframe
+          and speaks the SDK contract. It has no layout/auth wrapper: the shell
+          passes child/config via postMessage, not via routing state. */}
+      <Route path="/game-host" element={<GameHost />} />
+      {/* Dev-only SDK harness. Safe to leave in prod — reachable via URL only. */}
+      <Route path="/dev/sdk-test" element={<DevSdkTest />} />
 
       <Route
         path="/play"
