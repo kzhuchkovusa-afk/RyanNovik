@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { KidsBrainShell, buildGameHostSrc } from '../../shared/game-sdk.js';
 
 // Renders a sandboxed iframe pointing at /game-host?key=... and wires it
 // to the SDK. This is the "shell loader" side of the contract.
 //
 // Props:
-//   gameKey    — the registry key of the game to load (e.g. "focus_finder")
+//   gameKey    — registry key of the game to load (e.g. "focus_finder")
 //   child      — { id, name, avatar, age } → passed to game via init.child
 //   config     — the assignment's config JSON → passed to game via init.config
 //   limits     — { maxSessionSeconds } → passed to game via init.limits
@@ -14,7 +14,10 @@ import { KidsBrainShell, buildGameHostSrc } from '../../shared/game-sdk.js';
 //   onExit()   — game asked to leave
 //   onProgress(pct) — optional live progress
 //   allowSameOrigin — dev-only escape hatch; leave false in production
-export default function GameLauncher({
+//
+// Imperative handle (via ref):
+//   stop(reason) — tell the game to wrap up; used by the session-limit timer
+const GameLauncher = forwardRef(function GameLauncher({
   gameKey,
   child,
   config,
@@ -24,7 +27,7 @@ export default function GameLauncher({
   onExit,
   onProgress,
   allowSameOrigin = false
-}) {
+}, ref) {
   const iframeRef = useRef(null);
   const handleRef = useRef(null);
   const [progress, setProgress] = useState(0);
@@ -32,7 +35,6 @@ export default function GameLauncher({
   useEffect(() => {
     const el = iframeRef.current;
     if (!el) return;
-    // Give the iframe a tick to attach to DOM before wiring.
     const handle = KidsBrainShell.mount(el, {
       child, config, limits, locale
     }, {
@@ -42,14 +44,16 @@ export default function GameLauncher({
     });
     handleRef.current = handle;
     return () => handle.destroy();
-    // Intentionally NOT re-mounting when child/config change — the game should
-    // be re-created (new iframe) by the parent if it wants a fresh session.
+    // Intentionally NOT re-mounting when child/config change — the parent
+    // is expected to remount by giving this component a new React key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Public: hosts can call this via ref later. For now expose as effect dep.
-  // (Task 1.4 / Phase 2 will use handle.stop for parental limits.)
-  // We deliberately keep this component's API minimal.
+  useImperativeHandle(ref, () => ({
+    stop: (reason) => handleRef.current && handleRef.current.stop(reason),
+    getLastProgress: () => handleRef.current ? handleRef.current.getLastProgress() : 0,
+    hasCompleted: () => handleRef.current ? handleRef.current.hasCompleted() : false
+  }));
 
   const src = buildGameHostSrc(gameKey);
   // Sandbox strategy:
@@ -62,7 +66,7 @@ export default function GameLauncher({
       {progress > 0 && progress < 100 && (
         <div style={{
           position: 'absolute', top: 0, left: 0, right: 0, height: 4,
-          background: 'rgba(0,0,0,0.08)', zIndex: 2
+          background: 'rgba(0,0,0,0.08)', zIndex: 2, pointerEvents: 'none'
         }}>
           <div style={{ height: '100%', width: `${progress}%`, background: '#6c5ce7', transition: 'width .15s linear' }} />
         </div>
@@ -76,14 +80,6 @@ export default function GameLauncher({
       />
     </div>
   );
-}
+});
 
-// Imperative version — used by parents that need to hold a reference and
-// call handle.stop() themselves (e.g. session-limit timer in Phase 2).
-export function useGameLauncherHandle() {
-  const ref = useRef(null);
-  return {
-    ref,
-    stop: (reason) => ref.current && ref.current.stop(reason)
-  };
-}
+export default GameLauncher;
