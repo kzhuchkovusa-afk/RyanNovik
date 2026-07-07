@@ -9,6 +9,7 @@ const scoresRoutes = require('./routes/scores');
 const assignmentsRoutes = require('./routes/assignments');
 const limitsRoutes = require('./routes/limits');
 const parentAuthRoutes = require('./routes/parent-auth');
+const gateRoutes = require('./routes/gate');
 const { runAll: runMigrations } = require('./db/migrate');
 
 const app = express();
@@ -29,6 +30,7 @@ app.use('/api/scores', scoresRoutes);
 // (e.g. /api/children/:id/assignments, /api/games-library, /api/assignments/:id).
 app.use('/api', assignmentsRoutes);
 app.use('/api', limitsRoutes);
+app.use('/api', gateRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

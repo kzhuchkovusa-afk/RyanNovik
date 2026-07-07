@@ -6,38 +6,50 @@ import { api } from '../../lib/api.js';
 const SKILL_ICONS = { memory: '🧩', attention: '🔍', speed: '⚡' };
 const SKILL_LABELS = { memory: 'Memory', attention: 'Attention', speed: 'Fast Thinking' };
 
-// The hub: fetches whatever games are ASSIGNED to this child and renders one
-// tile per assignment, respecting sort_order + unlocked. Tapping a tile mounts
-// the game inline through GameLauncher (sandboxed iframe, SDK contract).
-//
-// Task 1.4 side-effects the hub can trigger without touching game code:
-//   • Add/remove a row in assignments → hub reflects it on next load.
-//   • Toggle unlocked=false → tile shows a lock and is non-tappable.
-//   • Set limits.max_session_seconds → the timer here calls handle.stop() at cap.
+const GATE_POLL_MS = 45_000;
+
+// The hub renders the assigned games AND enforces parental limits.
+// Server /gate is the source of truth (server clock; device clock is never
+// trusted). Enforcement logic:
+//   • On hub load → GET /gate. If !allowed → LockScreen instead of tiles.
+//   • While playing → poll /gate every 45s. If it flips to !allowed →
+//     launcher.stop(reason) so the game wraps up gracefully.
+//   • Effective in-game cap = min(maxSessionSeconds, secondsRemainingToday).
 export default function ChildHub() {
   const [profile, setProfile] = useState(null);
   const [assignments, setAssignments] = useState([]);
-  const [limits, setLimits] = useState({});
+  const [gate, setGate] = useState(null);
   const [summary, setSummary] = useState({ skills: {}, trend14: [] });
-  const [active, setActive] = useState(null);        // { assignment, sessionId }
-  const [toast, setToast] = useState(null);          // { score, skill }
+  const [active, setActive] = useState(null);
+  const [toast, setToast] = useState(null);
   const [errored, setErrored] = useState(null);
+
+  const refreshGate = async () => {
+    try {
+      const g = await api('/children/me/gate');
+      setGate(g);
+      return g;
+    } catch (e) {
+      // Non-fatal — assume allowed so a temporary API failure doesn't lock the kid out.
+      console.warn('gate check failed', e);
+      return null;
+    }
+  };
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [p, a, l, s] = await Promise.all([
+        const [p, a, s] = await Promise.all([
           api('/children/me/profile'),
           api('/children/me/assignments'),
-          api('/children/me/limits'),
           api('/children/me/summary')
         ]);
         if (!alive) return;
         setProfile(p.child);
         setAssignments(a.assignments || []);
-        setLimits(l.limits || {});
         setSummary(s || { skills: {}, trend14: [] });
+        await refreshGate();
       } catch (e) {
         if (!alive) return;
         setErrored(e.message || 'Failed to load hub');
@@ -46,7 +58,13 @@ export default function ChildHub() {
     return () => { alive = false; };
   }, []);
 
-  // "Best today" per skill: look at trend14's LAST bucket (today) → byBest[skill].
+  // Poll gate on the hub as well so a parent flipping "pause" from another
+  // device shows up within one cycle even without a play in progress.
+  useEffect(() => {
+    const id = setInterval(refreshGate, GATE_POLL_MS);
+    return () => clearInterval(id);
+  }, []);
+
   const bestTodayBySkill = useMemo(() => {
     const days = summary && summary.trend14 ? summary.trend14 : [];
     const today = days.length ? days[days.length - 1] : null;
@@ -56,6 +74,7 @@ export default function ChildHub() {
   if (errored) return <div className="center-spinner" style={{ color: '#e17055' }}>{errored}</div>;
   if (!profile) return <div className="center-spinner">Loading your hub…</div>;
 
+  const locked = gate && gate.allowed === false;
   const bgGradient = `linear-gradient(135deg, ${themeGradient(profile.theme)})`;
 
   return (
@@ -63,35 +82,55 @@ export default function ChildHub() {
       <div className="hub" style={{ background: bgGradient, position: 'relative', minHeight: '100vh' }}>
         <div className="hub-greeting">
           <h1>Hi {profile.child_name}! {profile.avatar || themeEmoji(profile.theme)}</h1>
-          <p>
-            {assignments.length === 0
-              ? 'No games yet — ask the grown-up to set you up! 🎈'
-              : 'Pick a game to play.'}
-          </p>
+          {!locked && (
+            <p>
+              {assignments.length === 0
+                ? 'No games yet — ask the grown-up to set you up! 🎈'
+                : 'Pick a game to play.'}
+            </p>
+          )}
         </div>
 
-        <div className="game-grid">
-          {assignments.map((a) => (
-            <AssignmentTile
-              key={a.assignment_id}
-              assignment={a}
-              bestToday={bestTodayBySkill[a.game.game_type]}
-              onLaunch={() => setActive({ assignment: a })}
-            />
-          ))}
-        </div>
+        {locked ? (
+          <LockScreen reason={gate.reason} hint={gate.hint} />
+        ) : (
+          <>
+            <div className="game-grid">
+              {assignments.map((a) => (
+                <AssignmentTile
+                  key={a.assignment_id}
+                  assignment={a}
+                  bestToday={bestTodayBySkill[a.game.game_type]}
+                  onLaunch={() => setActive({ assignment: a })}
+                />
+              ))}
+            </div>
+
+            {gate && gate.secondsRemainingToday != null && (
+              <div style={{ textAlign: 'center', color: '#2d3436', fontWeight: 700, marginTop: 18, opacity: 0.6 }}>
+                {formatRemaining(gate.secondsRemainingToday)} left today
+              </div>
+            )}
+          </>
+        )}
 
         {active && (
           <PlaySession
             profile={profile}
             assignment={active.assignment}
-            limits={limits}
-            onFinished={({ score, skill }) => {
-              setToast({ score, skill });
+            gate={gate}
+            refreshGate={refreshGate}
+            onFinished={({ score, skill, stopReason }) => {
               setActive(null);
-              // Refresh summary so the "Best today" pills update.
+              if (stopReason && stopReason !== 'shell' && stopReason !== 'user') {
+                // Locked mid-play — reflect the new gate state immediately.
+                refreshGate();
+              } else if (score != null) {
+                setToast({ score, skill });
+                setTimeout(() => setToast(null), 2400);
+              }
               api('/children/me/summary').then((s) => setSummary(s)).catch(() => {});
-              setTimeout(() => setToast(null), 2400);
+              refreshGate();
             }}
             onExit={() => setActive(null)}
           />
@@ -149,25 +188,85 @@ function AssignmentTile({ assignment, bestToday, onLaunch }) {
   );
 }
 
-function PlaySession({ profile, assignment, limits, onFinished, onExit }) {
-  const launcherRef = useRef(null);
-  const timerRef = useRef(null);
-  const capReached = useRef(false);
+// Reason → kid-friendly copy. Never punitive.
+const LOCK_COPY = {
+  dailyCap: {
+    icon: '🌙',
+    title: 'Great playing today!',
+    body: 'Come back tomorrow for more.',
+    tint: '#5e60ce'
+  },
+  outsideHours: {
+    icon: '⏰',
+    title: "It's not game time right now.",
+    body: 'See you at the next allowed time!',
+    tint: '#0077b6'
+  },
+  paused: {
+    icon: '⏸️',
+    title: 'Games are paused.',
+    body: 'Ask a grown-up to unpause.',
+    tint: '#ff9e00'
+  }
+};
+function LockScreen({ reason, hint }) {
+  const copy = LOCK_COPY[reason] || { icon: '🚧', title: 'Not right now', body: 'Try again later.', tint: '#636e72' };
+  return (
+    <div style={{ padding: 32, maxWidth: 520, margin: '30px auto', textAlign: 'center' }}>
+      <div style={{
+        background: 'white', borderRadius: 24, padding: 36,
+        boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
+        border: `4px solid ${copy.tint}`
+      }}>
+        <div style={{ fontSize: 80 }}>{copy.icon}</div>
+        <h2 style={{ margin: '14px 0 8px', color: copy.tint }}>{copy.title}</h2>
+        <p style={{ margin: 0, color: '#636e72', fontSize: 17 }}>{copy.body}</p>
+        {hint && (
+          <p style={{ marginTop: 12, color: '#636e72', fontSize: 14 }}>
+            Next window: {hint}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
 
+function PlaySession({ profile, assignment, gate, refreshGate, onFinished, onExit }) {
+  const launcherRef = useRef(null);
+  const stopReasonRef = useRef('user');
+  const pollRef = useRef(null);
+
+  // Effective session cap: the SHORTER of maxSession and today's remaining.
+  const effectiveSessionSec = useMemo(() => {
+    const maxSess = gate && gate.maxSessionSeconds ? Number(gate.maxSessionSeconds) : 0;
+    const remain = gate && gate.secondsRemainingToday != null ? Number(gate.secondsRemainingToday) : Infinity;
+    const candidates = [maxSess, remain].filter((n) => Number.isFinite(n) && n > 0);
+    return candidates.length ? Math.max(1, Math.min(...candidates)) : 0;
+  }, [gate]);
+
+  // Local session timer (mirrors what server-poll would catch, faster).
   useEffect(() => {
-    // Wire the session-limit hook per Task 1.4 (UI is Phase 2 — this is the
-    // enforcement path that already needs to exist).
-    const cap = Number(limits && limits.max_session_seconds);
-    if (!Number.isFinite(cap) || cap <= 0) return;
-    timerRef.current = setTimeout(() => {
-      capReached.current = true;
+    if (effectiveSessionSec <= 0) return;
+    const id = setTimeout(() => {
+      stopReasonRef.current = 'sessionLimit';
       if (launcherRef.current) launcherRef.current.stop('sessionLimit');
-    }, cap * 1000);
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [limits]);
+    }, effectiveSessionSec * 1000);
+    return () => clearTimeout(id);
+  }, [effectiveSessionSec]);
+
+  // Server-authoritative poll: if pause/hours/cap flips mid-play, stop.
+  useEffect(() => {
+    pollRef.current = setInterval(async () => {
+      const g = await refreshGate();
+      if (g && g.allowed === false) {
+        stopReasonRef.current = g.reason || 'gate';
+        if (launcherRef.current) launcherRef.current.stop(g.reason || 'gate');
+      }
+    }, GATE_POLL_MS);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [refreshGate]);
 
   const handleSessionComplete = async (payload) => {
-    if (timerRef.current) clearTimeout(timerRef.current);
     try {
       await api('/scores', {
         method: 'POST',
@@ -183,52 +282,51 @@ function PlaySession({ profile, assignment, limits, onFinished, onExit }) {
     } catch (e) {
       console.error('Failed to save score', e);
     }
-    onFinished({ score: payload.score, skill: payload.skill });
+    onFinished({
+      score: payload.score,
+      skill: payload.skill,
+      stopReason: stopReasonRef.current
+    });
   };
 
   const handleExit = () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
+    stopReasonRef.current = 'user';
     onExit();
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      style={{
-        position: 'fixed', inset: 0, background: '#0f0f14',
-        display: 'flex', flexDirection: 'column', zIndex: 20
-      }}
-    >
+    <div role="dialog" aria-modal="true" style={{
+      position: 'fixed', inset: 0, background: '#0f0f14',
+      display: 'flex', flexDirection: 'column', zIndex: 20
+    }}>
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         padding: '12px 16px', color: 'white', background: 'rgba(255,255,255,0.06)'
       }}>
         <div style={{ fontWeight: 800 }}>{assignment.game.name}</div>
-        <button
-          onClick={handleExit}
-          style={{ background: 'transparent', color: 'white', border: '2px solid rgba(255,255,255,0.4)', padding: '6px 12px', borderRadius: 8, fontWeight: 700, cursor: 'pointer' }}
-        >
-          ✕ Close
-        </button>
+        {effectiveSessionSec > 0 && (
+          <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>
+            Session cap: {Math.round(effectiveSessionSec / 60)}m
+          </div>
+        )}
+        <button onClick={handleExit} style={{
+          background: 'transparent', color: 'white', border: '2px solid rgba(255,255,255,0.4)',
+          padding: '6px 12px', borderRadius: 8, fontWeight: 700, cursor: 'pointer'
+        }}>✕ Close</button>
       </div>
       <div style={{ flex: 1, background: '#fff' }}>
         <GameLauncher
           ref={launcherRef}
           gameKey={assignment.game.key}
           child={{
-            id: profile.id,
-            name: profile.child_name,
-            avatar: profile.avatar || '🎈',
-            age: profile.age
+            id: profile.id, name: profile.child_name,
+            avatar: profile.avatar || '🎈', age: profile.age
           }}
           config={assignment.config || {}}
-          limits={{ maxSessionSeconds: (limits && limits.max_session_seconds) || 0 }}
+          limits={{ maxSessionSeconds: effectiveSessionSec }}
           locale="en"
           onSessionComplete={handleSessionComplete}
           onExit={handleExit}
-          // Dev-only: let Vite HMR reach into the iframe without breaking the
-          // Contract (origin check still enforced in the SDK).
           allowSameOrigin={import.meta.env.DEV}
         />
       </div>
@@ -236,15 +334,12 @@ function PlaySession({ profile, assignment, limits, onFinished, onExit }) {
   );
 }
 
-// Prefer an explicit accent set by the owner; fall back to the theme's
-// primary color; fall back to a safe default.
 function pickAccent(config) {
   if (!config) return '#6c5ce7';
   if (typeof config.accent === 'string' && config.accent) return config.accent;
   if (config.colors && typeof config.colors.primary === 'string' && config.colors.primary) return config.colors.primary;
   return '#6c5ce7';
 }
-
 function themeEmoji(theme) {
   const t = (theme || '').toLowerCase();
   if (t.includes('dino')) return '🦖';
@@ -265,4 +360,9 @@ function themeGradient(theme) {
   if (t.includes('ocean')) return '#81ecec, #74b9ff';
   if (t.includes('unicorn')) return '#fd79a8, #a29bfe';
   return '#ffeaa7, #fab1a0';
+}
+function formatRemaining(sec) {
+  if (sec == null) return '';
+  if (sec >= 3600) return `${Math.floor(sec / 3600)}h ${Math.round((sec % 3600) / 60)}m`;
+  return `${Math.round(sec / 60)} min`;
 }
