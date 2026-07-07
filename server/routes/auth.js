@@ -26,7 +26,7 @@ router.post('/login', (req, res) => {
 router.get('/me', authRequired, (req, res) => {
   const user = db
     .prepare(
-      `SELECT id, username, role, child_name, age, theme, interests, favorite_colors, parent_email, created_at
+      `SELECT id, username, role, child_name, age, theme, interests, favorite_colors, parent_email, avatar, created_at
        FROM users WHERE id = ?`
     )
     .get(req.user.id);

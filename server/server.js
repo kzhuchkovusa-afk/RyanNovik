@@ -10,6 +10,7 @@ const assignmentsRoutes = require('./routes/assignments');
 const limitsRoutes = require('./routes/limits');
 const parentAuthRoutes = require('./routes/parent-auth');
 const gateRoutes = require('./routes/gate');
+const accessRoutes = require('./routes/access');
 const { runAll: runMigrations } = require('./db/migrate');
 
 const app = express();
@@ -31,6 +32,10 @@ app.use('/api/scores', scoresRoutes);
 app.use('/api', assignmentsRoutes);
 app.use('/api', limitsRoutes);
 app.use('/api', gateRoutes);
+app.use('/api/access', accessRoutes);
+// Also mount the /children/:id/access-token + regenerate paths at /api so the
+// admin URL is /api/children/:id/... rather than /api/access/children/:id/...
+app.use('/api', accessRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

@@ -1,14 +1,8 @@
 const express = require('express');
 const db = require('../db');
-const { authRequired, requireRole, requireAdminOrParentOfChild } = require('../middleware/auth');
+const { authRequired, requireAdminOrParentOfChild, canAccessChild } = require('../middleware/auth');
 
 const router = express.Router();
-
-function canAccessChild(user, childId) {
-  if (user.role === 'admin') return true;
-  if (user.role === 'child' && Number(user.id) === Number(childId)) return true;
-  return false;
-}
 
 function safeJson(str, fallback) {
   if (str == null) return fallback;

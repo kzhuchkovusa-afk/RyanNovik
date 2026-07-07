@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Landing from './components/shared/Landing.jsx';
 import Login from './components/shared/Login.jsx';
+import EnterViaLink from './components/shared/EnterViaLink.jsx';
 import ChildHub from './components/child/ChildHub.jsx';
 import GamePlayer from './components/child/GamePlayer.jsx';
 import ParentGate from './components/parent/ParentGate.jsx';
@@ -25,6 +26,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/enter" element={<EnterViaLink />} />
 
       {/* Game contract — the /game-host route is loaded inside a sandboxed iframe
           and speaks the SDK contract. It has no layout/auth wrapper: the shell

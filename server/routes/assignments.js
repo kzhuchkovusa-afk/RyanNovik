@@ -1,6 +1,6 @@
 const express = require('express');
 const db = require('../db');
-const { authRequired, requireRole, requireAdminOrParentOfChild } = require('../middleware/auth');
+const { authRequired, requireRole, requireAdminOrParentOfChild, canAccessChild } = require('../middleware/auth');
 const { buildSummary } = require('./scores');
 
 const router = express.Router();
@@ -42,12 +42,6 @@ function listAssignments(childId) {
 
 function safeJson(str, fallback) {
   try { return JSON.parse(str); } catch { return fallback; }
-}
-
-function canAccessChild(user, childId) {
-  if (user.role === 'admin') return true;
-  if (user.role === 'child' && Number(user.id) === Number(childId)) return true;
-  return false;
 }
 
 // Convenience alias for the logged-in child (no id needed).

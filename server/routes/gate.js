@@ -1,6 +1,6 @@
 const express = require('express');
 const db = require('../db');
-const { authRequired } = require('../middleware/auth');
+const { authRequired, canAccessChild } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -68,17 +68,6 @@ function nextAllowedHint(limits) {
     parts.push(`on ${limits.allowed_days.map((d) => d[0].toUpperCase() + d.slice(1)).join(', ')}`);
   }
   return parts.length ? parts.join(' ') : null;
-}
-
-function canAccessChild(user, childId) {
-  if (!user) return false;
-  if (user.role === 'admin') return true;
-  if (user.role === 'child' && Number(user.id) === Number(childId)) return true;
-  if (user.role === 'parent') {
-    const list = Array.isArray(user.childIds) ? user.childIds.map(Number) : [];
-    return list.includes(Number(childId));
-  }
-  return false;
 }
 
 function computeGate(childId) {

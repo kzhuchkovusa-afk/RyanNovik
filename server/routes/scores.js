@@ -1,6 +1,6 @@
 const express = require('express');
 const db = require('../db');
-const { authRequired, requireRole } = require('../middleware/auth');
+const { authRequired, requireRole, canAccessChild } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -71,12 +71,6 @@ function resolveLegacyGameId(childId, gameType) {
   if (!gameType) return null;
   const row = db.prepare(`SELECT id FROM games WHERE child_id = ? AND game_type = ? LIMIT 1`).get(childId, gameType);
   return row ? row.id : null;
-}
-
-function canAccessChild(user, childId) {
-  if (user.role === 'admin') return true;
-  if (user.role === 'child' && Number(user.id) === Number(childId)) return true;
-  return false;
 }
 
 // The Phase-1 per-skill summary lives at /api/children/:id/summary — it's

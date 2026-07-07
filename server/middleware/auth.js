@@ -65,12 +65,27 @@ function requireAdminOrParentOfChild(getChildIdAsync) {
   };
 }
 
+// Phase 2 fix: a single canAccessChild that includes the parent role.
+// Previously each route re-defined this and only accepted admin+self, which
+// meant parent GETs (limits, assignments) were 403'd even for their own kid.
+function canAccessChild(user, childId) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  if (user.role === 'child' && Number(user.id) === Number(childId)) return true;
+  if (user.role === 'parent') {
+    const list = Array.isArray(user.childIds) ? user.childIds.map(Number) : [];
+    return list.includes(Number(childId));
+  }
+  return false;
+}
+
 module.exports = {
   signToken,
   signParentToken,
   authRequired,
   requireRole,
   requireAdminOrParentOfChild,
+  canAccessChild,
   JWT_SECRET,
   PARENT_EXPIRES_IN
 };
