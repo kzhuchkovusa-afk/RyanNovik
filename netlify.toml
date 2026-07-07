@@ -5,7 +5,10 @@
 [build]
   base    = "client"
   command = "npm install && npm run build"
-  publish = "client/dist"
+  # publish is resolved RELATIVE to base — so this becomes client/dist
+  # (Vite's default output dir). Prefixing with "client/" would break
+  # into client/client/dist which doesn't exist.
+  publish = "dist"
 
 [build.environment]
   NODE_VERSION = "20"
