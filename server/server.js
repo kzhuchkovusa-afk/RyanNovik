@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const config = require('./config');   // <-- fail-fast checks run here
 
 const authRoutes = require('./routes/auth');
 const childrenRoutes = require('./routes/children');
@@ -14,27 +15,22 @@ const clientsRoutes = require('./routes/clients');
 const { runAll: runMigrations } = require('./db/migrate');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
 
-app.use(cors({ origin: CLIENT_ORIGIN, credentials: false }));
+app.use(cors({ origin: config.clientOrigin, credentials: false }));
 app.use(express.json({ limit: '1mb' }));
 
-app.get('/api/health', (_req, res) => res.json({ ok: true }));
+app.get('/api/health', (_req, res) => res.json({ ok: true, env: config.isProd ? 'prod' : 'dev' }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/parent', parentAuthRoutes);
 app.use('/api/children', childrenRoutes);
 app.use('/api/scores', scoresRoutes);
-// Phase 1 endpoints — mounted at /api so the paths in each router are absolute
-// (e.g. /api/children/:id/assignments, /api/games-library, /api/assignments/:id).
+// Phase 1 endpoints — mounted at /api so paths in each router are absolute.
 app.use('/api', assignmentsRoutes);
 app.use('/api', limitsRoutes);
 app.use('/api', gateRoutes);
 app.use('/api/access', accessRoutes);
-// Also mount the /children/:id/access-token + regenerate paths at /api so the
-// admin URL is /api/children/:id/... rather than /api/access/children/:id/...
-app.use('/api', accessRoutes);
+app.use('/api', accessRoutes);      // also mounts /children/:id/access-token
 app.use('/api/clients', clientsRoutes);
 
 app.use((err, _req, res, _next) => {
@@ -50,6 +46,7 @@ try {
   process.exit(1);
 }
 
-app.listen(PORT, () => {
-  console.log(`KidsBrain API listening on http://localhost:${PORT}`);
+app.listen(config.port, () => {
+  console.log(`KidsBrain API listening on http://localhost:${config.port} (${config.isProd ? 'prod' : 'dev'})`);
+  console.log(`CORS locked to: ${config.clientOrigin}`);
 });

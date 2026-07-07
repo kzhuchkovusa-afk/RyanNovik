@@ -1,0 +1,38 @@
+# Render Blueprint for KidsBrain backend.
+# Connect this repo to Render, choose "New → Blueprint", pick this file.
+# Render will provision the service + persistent disk automatically.
+
+services:
+  - type: web
+    name: kidsbrain-api
+    runtime: node
+    plan: starter                    # free tier is fine to start
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /api/health
+
+    # Persistent disk holds the SQLite file. This is the MVP data-store —
+    # for horizontal scaling / multi-instance, port to Postgres (see README).
+    disk:
+      name: kidsbrain-data
+      mountPath: /var/data
+      sizeGB: 1
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000                 # Render's default
+      - key: JWT_SECRET
+        generateValue: true          # Render mints a strong random one
+      - key: CLIENT_ORIGIN
+        sync: false                  # set manually to your Netlify URL after first Netlify deploy
+      - key: DB_PATH
+        value: /var/data/kidsbrain.sqlite
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false                  # set to something the owner controls
+      - key: DEFAULT_PARENT_PIN
+        value: '1234'                # rotated per-client in the console

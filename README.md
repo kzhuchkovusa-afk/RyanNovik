@@ -57,10 +57,12 @@ kidsbrain/
 
 Each game accepts a JSON config (theme, items, colors, difficulty) so one template serves every child.
 
+## Deployment
+
+See **[DEPLOY.md](DEPLOY.md)** — Netlify (frontend) + Render (backend + SQLite on persistent disk). Free-tier friendly. ~15 min to get a live URL.
+
 ## Build Phases (per architecture doc)
-- ✅ Phase 1 — Backend foundation + auth
-- ✅ Phase 2 — 3 game templates (config-driven) + score saving
-- ✅ Phase 3 — Child personalized hub
-- ✅ Phase 4 — Parent dashboard
-- ✅ Phase 5 — Admin panel
-- ✅ Phase 6 — Landing page + responsive polish
+- ✅ Phase 1 — Contract + multi-tenant core (SDK, iframe loader, config-driven games)
+- ✅ Phase 2 — Parental controls (PIN auth, limits UI, server-time enforcement gate)
+- ✅ Phase 3 — Magic-link access, PWA/iOS install, owner console, deploy configs
+- ⏳ Phase 4 — Load Kirill as first real client

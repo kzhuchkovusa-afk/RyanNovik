@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
+const config = require('../config');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
+const JWT_SECRET = config.jwtSecret;
 const CHILD_ADMIN_EXPIRES_IN = '7d';
 const PARENT_EXPIRES_IN = '30m';       // Task 2.1: parent tokens must be short-lived
 
