@@ -6,6 +6,9 @@ const authRoutes = require('./routes/auth');
 const childrenRoutes = require('./routes/children');
 const gamesRoutes = require('./routes/games');
 const scoresRoutes = require('./routes/scores');
+const assignmentsRoutes = require('./routes/assignments');
+const limitsRoutes = require('./routes/limits');
+const { runAll: runMigrations } = require('./db/migrate');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -20,11 +23,23 @@ app.use('/api/auth', authRoutes);
 app.use('/api/children', childrenRoutes);
 app.use('/api/games', gamesRoutes);
 app.use('/api/scores', scoresRoutes);
+// Phase 1 endpoints — mounted at /api so the paths in each router are absolute
+// (e.g. /api/children/:id/assignments, /api/games-library, /api/assignments/:id).
+app.use('/api', assignmentsRoutes);
+app.use('/api', limitsRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);
   res.status(500).json({ error: 'Internal server error' });
 });
+
+// Run pending migrations on every boot — cheap and keeps prod/dev in sync.
+try {
+  runMigrations();
+} catch (e) {
+  console.error('Migration failed:', e);
+  process.exit(1);
+}
 
 app.listen(PORT, () => {
   console.log(`KidsBrain API listening on http://localhost:${PORT}`);

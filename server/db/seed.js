@@ -1,40 +1,54 @@
-const fs = require('fs');
-const path = require('path');
+// Idempotent bootstrapper: run schema migrations + data migrations + demo seed.
+// Safe to run repeatedly — each step guards itself.
+
 const bcrypt = require('bcryptjs');
 require('dotenv').config();
 
 const db = require('./index');
+const { runAll } = require('./migrate');
 
-const schemaSql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
-db.exec(schemaSql);
+runAll();
 
+// --- Admin user (unchanged from Phase 0) ------------------------------------
 const adminUsername = process.env.ADMIN_USERNAME || 'admin';
 const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
 
-const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(adminUsername);
-if (!existing) {
+const existingAdmin = db.prepare('SELECT id FROM users WHERE username = ?').get(adminUsername);
+if (!existingAdmin) {
   const hash = bcrypt.hashSync(adminPassword, 10);
-  db.prepare(
-    `INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')`
-  ).run(adminUsername, hash);
+  db.prepare(`INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')`).run(adminUsername, hash);
   console.log(`✔ Created admin user: ${adminUsername} / ${adminPassword}`);
 } else {
   console.log(`• Admin user "${adminUsername}" already exists.`);
 }
 
-// Demo child (only if no children yet)
+// --- Demo child (only if no child exists) -----------------------------------
+// The Phase-1 migration will have moved this child's assignments in the same
+// pass, so a fresh install ends up with clients/children/assignments/limits
+// all populated.
 const anyChild = db.prepare(`SELECT id FROM users WHERE role = 'child' LIMIT 1`).get();
 if (!anyChild) {
   const childHash = bcrypt.hashSync('emma123', 10);
+  const clientRow = db.prepare(`SELECT id FROM clients WHERE name = ?`).get('KidsBrain (default)');
   const info = db
     .prepare(
-      `INSERT INTO users (username, password_hash, role, child_name, age, theme, interests, favorite_colors, parent_email)
-       VALUES (?, ?, 'child', ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO users (username, password_hash, role, child_name, age, theme, interests, favorite_colors, parent_email, client_id, avatar)
+       VALUES (?, ?, 'child', ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run('emma', childHash, 'Emma', 7, 'dinosaurs', 'T-Rex, volcanoes, fossils', 'green, orange', 'parent@example.com');
+    .run(
+      'emma', childHash,
+      'Emma', 7, 'dinosaurs', 'T-Rex, volcanoes, fossils', 'green, orange',
+      'parent@example.com',
+      clientRow ? clientRow.id : null,
+      '🦖'
+    );
   const childId = info.lastInsertRowid;
 
+  // Grant Emma a fresh access_token now that column exists.
+  db.prepare(`UPDATE users SET access_token = lower(hex(randomblob(16))) WHERE id = ?`).run(childId);
+
   const memoryConfig = {
+    child_name: 'Emma',
     theme: 'dinosaurs',
     cards: [
       { name: 'T-Rex', emoji: '🦖' },
@@ -54,6 +68,7 @@ if (!anyChild) {
     }
   };
   const attentionConfig = {
+    child_name: 'Emma',
     theme: 'dinosaurs',
     items: [
       { emoji: '🦖', label: 'T-Rex' },
@@ -71,6 +86,7 @@ if (!anyChild) {
     }
   };
   const speedConfig = {
+    child_name: 'Emma',
     theme: 'dinosaurs',
     questions: [
       { prompt: 'Which one ROARS the loudest?', options: ['🦖', '🥚', '🌿'], correct: 0 },
@@ -88,12 +104,28 @@ if (!anyChild) {
     }
   };
 
-  const insertGame = db.prepare(
+  // Legacy per-child games table — kept so Phase-0 UI paths continue to load
+  // Emma's things until Task 1.4 rewires the hub.
+  const insertLegacy = db.prepare(
     `INSERT INTO games (child_id, game_type, game_name, game_config) VALUES (?, ?, ?, ?)`
   );
-  insertGame.run(childId, 'memory', 'Dino Memory Match', JSON.stringify(memoryConfig));
-  insertGame.run(childId, 'attention', 'Dino Focus Finder', JSON.stringify(attentionConfig));
-  insertGame.run(childId, 'speed', 'Dino Speed Dash', JSON.stringify(speedConfig));
+  insertLegacy.run(childId, 'memory', 'Dino Memory Match', JSON.stringify(memoryConfig));
+  insertLegacy.run(childId, 'attention', 'Dino Focus Finder', JSON.stringify(attentionConfig));
+  insertLegacy.run(childId, 'speed', 'Dino Speed Dash', JSON.stringify(speedConfig));
+
+  // Modern assignments (Task 1.3 shape).
+  const library = db.prepare(`SELECT id, game_type FROM games_library`).all();
+  const byType = Object.fromEntries(library.map((r) => [r.game_type, r.id]));
+  const insertAssignment = db.prepare(`
+    INSERT OR IGNORE INTO assignments (child_id, game_id, config, unlocked, sort_order)
+    VALUES (?, ?, ?, 1, ?)
+  `);
+  insertAssignment.run(childId, byType.memory, JSON.stringify(memoryConfig), 1);
+  insertAssignment.run(childId, byType.attention, JSON.stringify(attentionConfig), 2);
+  insertAssignment.run(childId, byType.speed, JSON.stringify(speedConfig), 3);
+
+  // Default limits row (nulls = unrestricted).
+  db.prepare(`INSERT OR IGNORE INTO limits (child_id) VALUES (?)`).run(childId);
 
   console.log('✔ Created demo child: emma / emma123 (with 3 dinosaur games)');
 } else {
