@@ -3,7 +3,7 @@ import Landing from './components/shared/Landing.jsx';
 import Login from './components/shared/Login.jsx';
 import ChildHub from './components/child/ChildHub.jsx';
 import GamePlayer from './components/child/GamePlayer.jsx';
-import ParentDashboard from './components/parent/ParentDashboard.jsx';
+import ParentGate from './components/parent/ParentGate.jsx';
 import AdminDashboard from './components/admin/AdminDashboard.jsx';
 import CreateChild from './components/admin/CreateChild.jsx';
 import ManageChild from './components/admin/ManageChild.jsx';
@@ -53,7 +53,7 @@ export default function App() {
         path="/parent"
         element={
           <Protected roles={['child']}>
-            <ParentDashboard />
+            <ParentGate />
           </Protected>
         }
       />

@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 
 const db = require('./index');
 const { seedGamesLibrary, GAMES_LIBRARY } = require('./games-library');
@@ -161,6 +162,26 @@ function runPhase1DataMigration() {
       VALUES (?, NULL, NULL, 0)
     `);
     for (const k of kids) ins.run(k.id);
+  });
+
+  // Phase 2 — one bcrypt-hashed PIN row in `parents` per client, and every
+  // child of that client is linked. Default PIN is "1234" (owner rotates
+  // via admin — endpoint added in the admin task).
+  stamp('phase2_seed_parent_pins', () => {
+    const defaultPin = process.env.DEFAULT_PARENT_PIN || '1234';
+    const hash = bcrypt.hashSync(defaultPin, 10);
+    const clients = db.prepare(`SELECT id FROM clients`).all();
+    const insertParent = db.prepare(`INSERT INTO parents (client_id, pin) VALUES (?, ?)`);
+    const linkKid = db.prepare(`INSERT OR IGNORE INTO parent_child_links (parent_id, child_id) VALUES (?, ?)`);
+    for (const c of clients) {
+      let parent = db.prepare(`SELECT id FROM parents WHERE client_id = ? LIMIT 1`).get(c.id);
+      if (!parent) {
+        const info = insertParent.run(c.id, hash);
+        parent = { id: info.lastInsertRowid };
+      }
+      const kids = db.prepare(`SELECT id FROM users WHERE role='child' AND client_id = ?`).all(c.id);
+      for (const k of kids) linkKid.run(parent.id, k.id);
+    }
   });
 }
 

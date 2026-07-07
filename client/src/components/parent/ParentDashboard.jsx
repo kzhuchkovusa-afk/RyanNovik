@@ -5,7 +5,7 @@ import { api } from '../../lib/api.js';
 const TYPE_LABELS = { memory: 'Memory', attention: 'Attention', speed: 'Speed' };
 const TYPE_ICONS = { memory: '🧩', attention: '🔍', speed: '⚡' };
 
-export default function ParentDashboard() {
+export default function ParentDashboard({ onExit }) {
   const [profile, setProfile] = useState(null);
   const [summary, setSummary] = useState({ games: [] });
 
@@ -35,6 +35,9 @@ export default function ParentDashboard() {
               Theme: {profile.theme || '—'} · Age: {profile.age || '—'}
             </p>
           </div>
+          {onExit && (
+            <button className="btn-ghost" onClick={onExit}>Exit parent area</button>
+          )}
         </div>
 
         <div className="stats-grid" style={{ marginBottom: 24 }}>

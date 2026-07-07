@@ -8,6 +8,7 @@ const gamesRoutes = require('./routes/games');
 const scoresRoutes = require('./routes/scores');
 const assignmentsRoutes = require('./routes/assignments');
 const limitsRoutes = require('./routes/limits');
+const parentAuthRoutes = require('./routes/parent-auth');
 const { runAll: runMigrations } = require('./db/migrate');
 
 const app = express();
@@ -20,6 +21,7 @@ app.use(express.json({ limit: '1mb' }));
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
 app.use('/api/auth', authRoutes);
+app.use('/api/parent', parentAuthRoutes);
 app.use('/api/children', childrenRoutes);
 app.use('/api/games', gamesRoutes);
 app.use('/api/scores', scoresRoutes);

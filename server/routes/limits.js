@@ -1,6 +1,6 @@
 const express = require('express');
 const db = require('../db');
-const { authRequired, requireRole } = require('../middleware/auth');
+const { authRequired, requireRole, requireAdminOrParentOfChild } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -52,9 +52,13 @@ router.get('/children/:id/limits', authRequired, (req, res) => {
   res.json({ limits: readLimits(childId) });
 });
 
-// Parent/Admin: update limits. (Parent role plumbing lands in Phase 2 access
-// work — for now admin can edit, child cannot edit their own limits.)
-router.put('/children/:id/limits', authRequired, requireRole('admin'), (req, res) => {
+// Admin OR the child's parent (Task 2.1 scope) can write limits. The child's
+// own token cannot — kids cannot lift their own restrictions.
+router.put(
+  '/children/:id/limits',
+  authRequired,
+  requireAdminOrParentOfChild((req) => req.params.id),
+  (req, res) => {
   const childId = Number(req.params.id);
   const b = req.body || {};
 
@@ -74,7 +78,8 @@ router.put('/children/:id/limits', authRequired, requireRole('admin'), (req, res
     )
     .run(daily, maxSess, allowedHours, allowedDays, paused, childId);
   res.json({ limits: readLimits(childId) });
-});
+  }
+);
 
 function numOrNull(x) {
   if (x == null || x === '') return null;

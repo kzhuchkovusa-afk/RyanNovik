@@ -1,9 +1,14 @@
 const express = require('express');
 const db = require('../db');
-const { authRequired, requireRole } = require('../middleware/auth');
+const { authRequired, requireRole, requireAdminOrParentOfChild } = require('../middleware/auth');
 const { buildSummary } = require('./scores');
 
 const router = express.Router();
+
+function assignmentOwnerChildId(assignmentId) {
+  const row = db.prepare(`SELECT child_id FROM assignments WHERE id = ?`).get(assignmentId);
+  return row ? row.child_id : null;
+}
 
 // Helper: fetch one child's assignments joined with the games library.
 // Returns the exact shape the hub (Task 1.4) and the SDK loader want:
@@ -85,8 +90,14 @@ router.post('/assignments', authRequired, requireRole('admin'), (req, res) => {
   }
 });
 
-// Admin: update an assignment. Body: { config?, unlocked?, sort_order? }
-router.put('/assignments/:id', authRequired, requireRole('admin'), (req, res) => {
+// Admin OR the assignment's parent can update. In practice parents will only
+// flip `unlocked` from the Controls tab; the code accepts config too so an
+// owner-admin can edit through the same path.
+router.put(
+  '/assignments/:id',
+  authRequired,
+  requireAdminOrParentOfChild((req) => assignmentOwnerChildId(req.params.id)),
+  (req, res) => {
   const fields = [];
   const values = [];
   if (req.body.config !== undefined) {
@@ -100,7 +111,8 @@ router.put('/assignments/:id', authRequired, requireRole('admin'), (req, res) =>
   values.push(req.params.id);
   db.prepare(`UPDATE assignments SET ${fields.join(', ')} WHERE id = ?`).run(...values);
   res.json({ ok: true });
-});
+  }
+);
 
 router.delete('/assignments/:id', authRequired, requireRole('admin'), (req, res) => {
   db.prepare(`DELETE FROM assignments WHERE id = ?`).run(req.params.id);
