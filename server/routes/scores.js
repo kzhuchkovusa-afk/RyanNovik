@@ -4,36 +4,23 @@ const { authRequired, requireRole, canAccessChild } = require('../middleware/aut
 
 const router = express.Router();
 
-// The scores table IS the "sessions" store (PHASE1_README canonical name).
-// STEP 0 reconciliation: keep POST /api/scores; accept both the Phase-0 body
-// (game_id from the legacy per-child games table + score/difficulty_level)
-// AND the Phase-1 body ({childId?, gameKey, score(0-100), level, time_spent_seconds, raw}).
-// Skill is DERIVED server-side from games_library.game_type — the client
-// never sends it authoritatively.
-
+// POST /api/scores — Phase-1 shape only (Phase-0 legacy body retired in
+// Task 3.3). Body:
+//   { gameKey, score(0-100), level?, time_spent_seconds, difficulty_level?, raw? }
+// Skill is derived server-side from games_library.game_type.
 router.post('/', authRequired, (req, res) => {
   if (req.user.role !== 'child') {
     return res.status(403).json({ error: 'Only children submit scores' });
   }
   const body = req.body || {};
+  if (!body.gameKey) return res.status(400).json({ error: 'gameKey required' });
+
+  const libRow = db
+    .prepare(`SELECT id, game_type FROM games_library WHERE key = ?`)
+    .get(body.gameKey);
+  if (!libRow) return res.status(400).json({ error: `Unknown gameKey "${body.gameKey}"` });
+
   const childId = req.user.id;
-
-  // Resolve the library game.
-  let libRow = null;
-  if (body.gameKey) {
-    libRow = db.prepare(`SELECT id, game_type FROM games_library WHERE key = ?`).get(body.gameKey);
-    if (!libRow) return res.status(400).json({ error: `Unknown gameKey "${body.gameKey}"` });
-  } else if (body.game_id) {
-    // Phase-0 legacy path: game_id points at the per-child games table.
-    const legacy = db.prepare(`SELECT id, child_id, game_type FROM games WHERE id = ?`).get(body.game_id);
-    if (!legacy || legacy.child_id !== childId) {
-      return res.status(403).json({ error: 'Not your game' });
-    }
-    libRow = db.prepare(`SELECT id, game_type FROM games_library WHERE game_type = ?`).get(legacy.game_type);
-  } else {
-    return res.status(400).json({ error: 'gameKey or game_id required' });
-  }
-
   const score = clamp0to100(body.score);
   const level = Number.isFinite(Number(body.level)) ? Number(body.level) : null;
   const timeSpent = Math.max(0, Math.round(Number(body.time_spent_seconds || body.durationSec || 0)));
@@ -44,21 +31,14 @@ router.post('/', authRequired, (req, res) => {
     .prepare(
       `INSERT INTO scores
        (child_id, game_id, game_library_id, score, difficulty_level, time_spent_seconds, level, raw, played_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+       VALUES (?, 0, ?, ?, ?, ?, ?, ?, datetime('now'))`
     )
-    // scores.game_id is legacy-FK to the per-child games table — best-effort:
-    // find one that matches this child + game_type; else store 0 (schema-relaxed).
-    .run(
-      childId,
-      resolveLegacyGameId(childId, libRow && libRow.game_type) || 0,
-      libRow ? libRow.id : null,
-      score,
-      difficulty,
-      timeSpent,
-      level,
-      raw
-    );
-  res.status(201).json({ id: info.lastInsertRowid, score, skill: libRow ? libRow.game_type : null });
+    // scores.game_id is a legacy FK column (see Phase-1 migration). We
+    // write 0 here since the legacy games table is being retired; the
+    // authoritative link is game_library_id.
+    .run(childId, libRow.id, score, difficulty, timeSpent, level, raw);
+
+  res.status(201).json({ id: info.lastInsertRowid, score, skill: libRow.game_type });
 });
 
 function clamp0to100(x) {
@@ -67,19 +47,10 @@ function clamp0to100(x) {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
-function resolveLegacyGameId(childId, gameType) {
-  if (!gameType) return null;
-  const row = db.prepare(`SELECT id FROM games WHERE child_id = ? AND game_type = ? LIMIT 1`).get(childId, gameType);
-  return row ? row.id : null;
-}
-
 // The Phase-1 per-skill summary lives at /api/children/:id/summary — it's
 // exposed from assignments.js (which is mounted at /api). We export the
 // builder from here so both files use the same shape.
 function buildSummary(childId) {
-  // Group all normalized-0-100 scores by skill. Skill = the library game's
-  // game_type; scores.game_library_id is the join key. Phase-0 rows that
-  // never got a game_library_id (unlikely after migration) are ignored.
   const rows = db
     .prepare(
       `SELECT s.id, s.score, s.time_spent_seconds, s.played_at, s.level,
@@ -126,7 +97,6 @@ function buildSummary(childId) {
 function avg(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0; }
 
 function build14dayTrend(rows) {
-  // For each of the last 14 calendar days, per skill, best score of the day.
   const now = new Date();
   const days = [];
   for (let i = 13; i >= 0; i--) {
@@ -147,11 +117,12 @@ function build14dayTrend(rows) {
   return days;
 }
 
-// Legacy admin overview — retained for the current AdminDashboard.
+// Owner overview (Phase-3 uses assignments, not the legacy games table).
 router.get('/admin/overview', authRequired, requireRole('admin'), (_req, res) => {
   const totals = db
     .prepare(
       `SELECT
+         (SELECT COUNT(*) FROM clients) AS total_clients,
          (SELECT COUNT(*) FROM users WHERE role = 'child') AS total_children,
          (SELECT COUNT(*) FROM assignments) AS total_assignments,
          (SELECT COUNT(*) FROM scores) AS total_plays,
@@ -159,55 +130,13 @@ router.get('/admin/overview', authRequired, requireRole('admin'), (_req, res) =>
     )
     .get();
   res.json({
+    total_clients: totals.total_clients,
     total_children: totals.total_children,
-    total_games: totals.total_assignments, // preserved key name for the current UI
+    total_games: totals.total_assignments,
     total_plays: totals.total_plays,
     active_last_7d: totals.active_last_7d
   });
 });
 
-// Legacy per-game summary — used by the current ParentDashboard until Task 1.4.
-router.get('/mine/summary', authRequired, (req, res) => {
-  if (req.user.role !== 'child') return res.status(403).json({ error: 'Forbidden' });
-  res.json(buildLegacySummary(req.user.id));
-});
-router.get('/child/:id/summary', authRequired, requireRole('admin'), (req, res) => {
-  res.json(buildLegacySummary(req.params.id));
-});
-
-function buildLegacySummary(childId) {
-  const games = db.prepare(`SELECT id, game_type, game_name FROM games WHERE child_id = ? ORDER BY created_at ASC`).all(childId);
-  const perGame = games.map((g) => {
-    const agg = db
-      .prepare(
-        `SELECT COUNT(*) AS plays, MAX(score) AS best, AVG(score) AS avg,
-                SUM(time_spent_seconds) AS total_time, MAX(played_at) AS last_played
-         FROM scores WHERE game_id = ?`
-      )
-      .get(g.id);
-    const recent = db
-      .prepare(`SELECT score, played_at FROM scores WHERE game_id = ? ORDER BY played_at DESC LIMIT 10`)
-      .all(g.id)
-      .reverse();
-    let trend = 'flat';
-    if (recent.length >= 2) {
-      const half = Math.floor(recent.length / 2);
-      const firstAvg = recent.slice(0, half).reduce((a, b) => a + b.score, 0) / (half || 1);
-      const secondAvg = recent.slice(half).reduce((a, b) => a + b.score, 0) / (recent.length - half || 1);
-      if (secondAvg > firstAvg + 0.5) trend = 'up';
-      else if (secondAvg < firstAvg - 0.5) trend = 'down';
-    }
-    return {
-      game_id: g.id, game_type: g.game_type, game_name: g.game_name,
-      plays: agg.plays || 0, best: agg.best || 0,
-      avg: agg.avg ? Number(agg.avg.toFixed(1)) : 0,
-      total_time: agg.total_time || 0, last_played: agg.last_played, trend,
-      recent: recent.map((r) => ({ score: r.score, played_at: r.played_at }))
-    };
-  });
-  return { games: perGame };
-}
-
 module.exports = router;
 module.exports.buildSummary = buildSummary;
-module.exports.canAccessChild = canAccessChild;

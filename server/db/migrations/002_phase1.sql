@@ -65,8 +65,19 @@ CREATE TABLE IF NOT EXISTS limits (
 );
 
 -- 2. Additive column changes -------------------------------------------------
--- SQLite lacks IF NOT EXISTS on ADD COLUMN; migrate.js guards each ALTER.
+-- SQLite lacks IF NOT EXISTS on ADD COLUMN, but the _migrations tracker
+-- guarantees we never re-run this file on the same DB, so a plain ALTER
+-- is safe. If a very old DB already went through the earlier JS-based
+-- ALTERs (phase1_alter_users / phase1_alter_scores), it will have skipped
+-- this migration by having 002 already applied — no double-add.
+ALTER TABLE users  ADD COLUMN client_id     INTEGER REFERENCES clients(id);
+ALTER TABLE users  ADD COLUMN avatar        TEXT;
+ALTER TABLE users  ADD COLUMN access_token  TEXT;
 
--- users:  client_id, avatar, access_token   (see migrate.js)
--- scores: level, raw, game_library_id       (see migrate.js)
--- games_library rows + assignments rows for legacy per-child games: seeded in migrate.js
+ALTER TABLE scores ADD COLUMN level             INTEGER;
+ALTER TABLE scores ADD COLUMN raw               TEXT;
+ALTER TABLE scores ADD COLUMN game_library_id   INTEGER REFERENCES games_library(id);
+
+-- games_library rows + assignments rows for legacy per-child games are
+-- seeded by the JS phase (see migrate.js) since JSON encoding is easier
+-- in code.

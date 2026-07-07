@@ -104,16 +104,8 @@ if (!anyChild) {
     }
   };
 
-  // Legacy per-child games table — kept so Phase-0 UI paths continue to load
-  // Emma's things until Task 1.4 rewires the hub.
-  const insertLegacy = db.prepare(
-    `INSERT INTO games (child_id, game_type, game_name, game_config) VALUES (?, ?, ?, ?)`
-  );
-  insertLegacy.run(childId, 'memory', 'Dino Memory Match', JSON.stringify(memoryConfig));
-  insertLegacy.run(childId, 'attention', 'Dino Focus Finder', JSON.stringify(attentionConfig));
-  insertLegacy.run(childId, 'speed', 'Dino Speed Dash', JSON.stringify(speedConfig));
-
-  // Modern assignments (Task 1.3 shape).
+  // Phase-3 (Task 3.3): legacy `games` table is retired; assignments +
+  // games_library are the only source of truth.
   const library = db.prepare(`SELECT id, game_type FROM games_library`).all();
   const byType = Object.fromEntries(library.map((r) => [r.game_type, r.id]));
   const insertAssignment = db.prepare(`
