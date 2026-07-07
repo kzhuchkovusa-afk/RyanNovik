@@ -1,0 +1,57 @@
+# Render Blueprint for KidsBrain backend.
+# Connect this repo to Render, choose "New → Blueprint", pick this file.
+# Render will provision the service + persistent disk automatically.
+
+services:
+  - type: web
+    name: kidsbrain-api
+    # Docker runtime so the image can carry the optional Litestream binary
+    # alongside Node. When LITESTREAM_S3_BUCKET is unset the container just
+    # execs node — zero overhead until you turn on replication.
+    runtime: image
+    dockerfilePath: server/Dockerfile
+    dockerContext: server
+    plan: starter                    # free tier is fine to start
+    healthCheckPath: /api/health
+
+    # Persistent disk holds the SQLite file. This is the MVP data-store —
+    # for horizontal scaling / multi-instance, port to Postgres (see README).
+    disk:
+      name: kidsbrain-data
+      mountPath: /var/data
+      sizeGB: 1
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000                 # Render's default
+      - key: JWT_SECRET
+        generateValue: true          # Render mints a strong random one
+      - key: CLIENT_ORIGIN
+        sync: false                  # set manually to your Netlify URL after first Netlify deploy
+      - key: DB_PATH
+        value: /var/data/kidsbrain.sqlite
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false                  # set to something the owner controls
+      - key: DEFAULT_PARENT_PIN
+        value: '1234'                # rotated per-client in the console
+
+      # ── OPTIONAL: Litestream S3 replication ──
+      # Fill these in once you provision an S3 bucket (any provider works —
+      # Backblaze B2 and Cloudflare R2 are the cheapest S3-compatibles for a
+      # few MB of data). Leave them blank to disable Litestream entirely.
+      - key: LITESTREAM_S3_BUCKET
+        sync: false
+      - key: LITESTREAM_S3_PATH
+        value: kidsbrain/prod
+      - key: LITESTREAM_S3_REGION
+        sync: false
+      - key: LITESTREAM_S3_ENDPOINT
+        sync: false                 # e.g. https://s3.us-west-002.backblazeb2.com
+      - key: LITESTREAM_S3_ACCESS_KEY_ID
+        sync: false
+      - key: LITESTREAM_S3_SECRET_ACCESS_KEY
+        sync: false

@@ -1,0 +1,14 @@
+{
+  "name": "kidsbrain",
+  "private": true,
+  "version": "1.0.0",
+  "description": "KidsBrain — personalized cognitive games platform (monorepo root).",
+  "scripts": {
+    "setup": "node setup.js",
+    "start": "concurrently -k -n server,client -c cyan,magenta \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
+    "dev": "npm start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}

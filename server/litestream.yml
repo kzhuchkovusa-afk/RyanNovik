@@ -1,0 +1,28 @@
+# Litestream config — continuous replication of the SQLite database to S3.
+# Only used when LITESTREAM_* env vars are set on Render (see DEPLOY.md).
+#
+# What it does:
+#   • Streams WAL frames to the S3 bucket in near-real-time (RPO ~1 s).
+#   • On boot, Litestream restores from S3 into DB_PATH if the disk is empty.
+#   • Point-in-time restore available via `litestream restore -timestamp ...`.
+
+dbs:
+  - path: /var/data/kidsbrain.sqlite
+    replicas:
+      - type: s3
+        # These read straight from Render env vars — see DEPLOY.md for
+        # the exact set required.
+        bucket: ${LITESTREAM_S3_BUCKET}
+        path: ${LITESTREAM_S3_PATH}
+        region: ${LITESTREAM_S3_REGION}
+        # Optional: point at any S3-compatible storage (Backblaze B2,
+        # Cloudflare R2, MinIO). Leave unset for AWS S3.
+        endpoint: ${LITESTREAM_S3_ENDPOINT}
+        access-key-id: ${LITESTREAM_S3_ACCESS_KEY_ID}
+        secret-access-key: ${LITESTREAM_S3_SECRET_ACCESS_KEY}
+        # Retain 30 days of WAL history — plenty for accidental-delete recovery.
+        retention: 720h
+        # Take a snapshot every hour so restores don't have to replay days of WAL.
+        snapshot-interval: 1h
+        # Sync WAL frames every second — RPO ~1 s.
+        sync-interval: 1s
