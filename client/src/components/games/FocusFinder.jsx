@@ -7,6 +7,16 @@ import { useEffect, useRef, useState } from 'react';
 //   levelF      = level / maxLevel   (level == final round reached)
 //   score       = round(100 * (0.40*acc + 0.30*distResist + 0.30*levelF))
 
+// Kirill's Phase-4 config uses `items` as a flat string[] of emojis.
+// The Emma/default configs use `items: [{emoji, label}]`. Both must
+// load without editing game code (per PHASE4 STEP-0).
+function normalizeItems(items) {
+  if (!Array.isArray(items) || !items.length) return null;
+  return items.map((x) =>
+    typeof x === 'string' ? { emoji: x, label: x } : x
+  ).filter((x) => x && typeof x.emoji === 'string');
+}
+
 const DEFAULTS = {
   items: [
     { emoji: '🍎', label: 'apple' }, { emoji: '🍊', label: 'orange' },
@@ -21,11 +31,21 @@ const DEFAULTS = {
 };
 
 export default function FocusFinder({ config = {}, stopSignal, sdk }) {
-  const items = config.items && config.items.length >= 2 ? config.items : DEFAULTS.items;
-  const colors = { ...DEFAULTS.colors, ...(config.colors || {}) };
+  // Kirill's Phase-4 config uses items:string[] + accent + sceneNames +
+  // winCheer + oddPairs; older configs use items:[{emoji,label}] +
+  // difficulty_levels. Normalize both shapes to the internal one.
+  const items = normalizeItems(config.items) || DEFAULTS.items;
+  const colors = {
+    ...DEFAULTS.colors,
+    ...(config.colors || {}),
+    ...(config.accent ? { primary: config.accent } : {})
+  };
   const difficulty = config.difficulty || 'easy';
   const level = (config.difficulty_levels && config.difficulty_levels[difficulty]) || DEFAULTS.difficulty_levels[difficulty] || DEFAULTS.difficulty_levels.easy;
-  const totalRounds = Math.max(1, level.rounds || 5);
+  const totalRounds = Math.max(1, Math.min(config.maxLevel ? config.maxLevel * 2 : Infinity, level.rounds || 5));
+  const sceneNames = Array.isArray(config.sceneNames) && config.sceneNames.length ? config.sceneNames : null;
+  const oddPairs = Array.isArray(config.oddPairs) && config.oddPairs.length ? config.oddPairs : null;
+  const winCheer = Array.isArray(config.winCheer) && config.winCheer.length ? config.winCheer : ['Great!', 'Sharp eyes!', 'Found it!'];
 
   const [round, setRound] = useState(0);
   const [correct, setCorrect] = useState(0);
@@ -35,8 +55,10 @@ export default function FocusFinder({ config = {}, stopSignal, sdk }) {
   const [cells, setCells] = useState([]);
   const [oddIndex, setOddIndex] = useState(-1);
   const [feedback, setFeedback] = useState(null);
+  const [cheer, setCheer] = useState(null);
   const startRef = useRef(Date.now());
   const finishedRef = useRef(false);
+  const currentScene = sceneNames ? sceneNames[round % sceneNames.length] : null;
 
   const finish = (reason = 'complete') => {
     if (finishedRef.current) return;
@@ -88,17 +110,27 @@ export default function FocusFinder({ config = {}, stopSignal, sdk }) {
 
   const setupRound = () => {
     if (items.length < 2) return;
-    const main = items[Math.floor(Math.random() * items.length)];
-    let odd;
-    do { odd = items[Math.floor(Math.random() * items.length)]; } while (odd.emoji === main.emoji);
+    // Prefer a hand-picked oddPair (Phase-4 config) when provided — falls
+    // back to a random pair from `items` when none apply.
+    let mainEmoji, oddEmoji;
+    if (oddPairs && Math.random() < 0.7) {
+      const pair = oddPairs[Math.floor(Math.random() * oddPairs.length)];
+      mainEmoji = pair[0]; oddEmoji = pair[1];
+    } else {
+      const main = items[Math.floor(Math.random() * items.length)];
+      let odd;
+      do { odd = items[Math.floor(Math.random() * items.length)]; } while (odd.emoji === main.emoji);
+      mainEmoji = main.emoji; oddEmoji = odd.emoji;
+    }
     const size = Math.max(4, level.grid || 6);
-    const arr = Array(size).fill(main.emoji);
+    const arr = Array(size).fill(mainEmoji);
     const idx = Math.floor(Math.random() * size);
-    arr[idx] = odd.emoji;
+    arr[idx] = oddEmoji;
     setCells(arr);
     setOddIndex(idx);
     setTimeLeft(level.time_per_round);
     setFeedback(null);
+    setCheer(null);
   };
 
   const handleAnswer = (i) => {
@@ -109,6 +141,7 @@ export default function FocusFinder({ config = {}, stopSignal, sdk }) {
       // timeout counts as an incorrect round with no tap
     } else if (isCorrect) {
       setCorrect((c) => c + 1);
+      setCheer(winCheer[Math.floor(Math.random() * winCheer.length)]);
     } else {
       setWrongTaps((w) => w + 1);
     }
@@ -136,6 +169,14 @@ export default function FocusFinder({ config = {}, stopSignal, sdk }) {
       <p style={{ textAlign: 'center', fontWeight: 700, fontSize: 20, color: colors.primary }}>
         🔍 Tap the one that's DIFFERENT!
       </p>
+      {currentScene && (
+        <p style={{ textAlign: 'center', fontSize: 14, color: colors.primary, opacity: 0.7, marginTop: -6 }}>
+          {currentScene}
+        </p>
+      )}
+      {cheer && (
+        <p style={{ textAlign: 'center', fontWeight: 800, color: '#00b894', fontSize: 18 }}>{cheer}</p>
+      )}
       <div style={{
         display: 'grid',
         gridTemplateColumns: `repeat(${cols}, minmax(60px, 110px))`,

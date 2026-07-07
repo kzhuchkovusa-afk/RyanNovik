@@ -60,6 +60,33 @@ The server on first boot runs every pending migration (including the Phase-3 leg
 | `ADMIN_PASSWORD`       | Render (manual)      | Set to something you control before first boot                              |
 | `DEFAULT_PARENT_PIN`   | Render (from yaml)   | Seed PIN for each new client. Rotate per client via the console.            |
 
+## Data durability (Litestream — recommended before real customer data)
+
+Render's persistent disk is durable to a single-zone failure, but a bad delete or disk corruption still costs you a customer's progress. **Before Kirill's data is "real" (Sergey paying, progress accruing)** turn on **Litestream** — a sidecar that streams SQLite WAL frames to S3 continuously, giving you ~1 s RPO + point-in-time restore. The Docker image already carries the Litestream binary; it stays dormant until the S3 env vars are set.
+
+Setup:
+
+1. Provision any S3-compatible bucket. Cheapest options are Backblaze B2 or Cloudflare R2 (both S3-compatible and ~$0/mo at this scale). Create a bucket like `kidsbrain-backups`, note the region + endpoint URL, mint an access key.
+2. In Render → your service → Environment, fill in:
+   ```
+   LITESTREAM_S3_BUCKET             kidsbrain-backups
+   LITESTREAM_S3_PATH               kidsbrain/prod            (or any prefix)
+   LITESTREAM_S3_REGION             us-west-002               (Backblaze) or your AWS region
+   LITESTREAM_S3_ENDPOINT           https://s3.us-west-002.backblazeb2.com   (blank for AWS)
+   LITESTREAM_S3_ACCESS_KEY_ID      …
+   LITESTREAM_S3_SECRET_ACCESS_KEY  …
+   ```
+3. Redeploy. The wrapper (`scripts/start-with-litestream.sh`) detects the env vars and runs `litestream replicate -exec "node server.js"` instead of raw node.
+4. On any future deploy where the disk is empty, Litestream automatically restores from S3 before Node starts.
+
+Recovery (worst case — Render loses the disk):
+```bash
+# on any machine with litestream + the S3 creds:
+litestream restore -o ./kidsbrain.sqlite s3://kidsbrain-backups/kidsbrain/prod
+# point-in-time:
+litestream restore -o ./kidsbrain.sqlite -timestamp 2026-07-08T12:00:00Z s3://…
+```
+
 ## When to graduate from SQLite
 
 The current setup runs on a single Render web service with SQLite on a persistent disk. This handles:

@@ -14,6 +14,30 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 //   gridF  = pairsCleared / maxPairs
 //   score  = round(100 * (0.60*eff + 0.40*gridF))    →  0..100
 
+// Kirill's Phase-4 config uses `faces: string[]`; older configs use
+// `cards: [{name, emoji}]`. Both must load without editing game code.
+function normalizeCards(config) {
+  if (Array.isArray(config.cards) && config.cards.length) return config.cards;
+  if (Array.isArray(config.faces) && config.faces.length) {
+    return config.faces.map((emoji) => ({ name: emoji, emoji }));
+  }
+  return null;
+}
+
+// Kirill's `levels: [{pairs: 4}, {pairs: 6}, ...]` array vs older
+// `difficulty_levels: {easy, medium, hard}` map. Difficulty strings map
+// to array indexes 0..N-1.
+function resolveLevel(config, difficulty) {
+  if (config.difficulty_levels && config.difficulty_levels[difficulty]) {
+    return config.difficulty_levels[difficulty];
+  }
+  if (Array.isArray(config.levels) && config.levels.length) {
+    const idx = { easy: 0, medium: 1, hard: 2 }[difficulty] ?? 0;
+    return config.levels[Math.min(idx, config.levels.length - 1)];
+  }
+  return null;
+}
+
 const DEFAULTS = {
   cards: [
     { name: 'Red', emoji: '🔴' }, { name: 'Blue', emoji: '🔵' },
@@ -37,11 +61,21 @@ function shuffle(arr) {
 }
 
 export default function MemoryMatch({ config = {}, limits = {}, stopSignal, sdk }) {
-  const cards = config.cards && config.cards.length ? config.cards : DEFAULTS.cards;
-  const colors = { ...DEFAULTS.colors, ...(config.colors || {}) };
+  // Accept both card shapes: Kirill's Phase-4 config uses `faces:string[]`,
+  // older configs use `cards:[{name,emoji}]`.
+  const cards = normalizeCards(config) || DEFAULTS.cards;
+  const colors = {
+    ...DEFAULTS.colors,
+    ...(config.colors || {}),
+    ...(config.accent ? { primary: config.accent } : {})
+  };
   const difficulty = config.difficulty || 'easy';
-  const level = (config.difficulty_levels && config.difficulty_levels[difficulty]) || DEFAULTS.difficulty_levels[difficulty] || DEFAULTS.difficulty_levels.easy;
+  // Accept two difficulty shapes: Kirill's Phase-4 `levels: [{pairs}]`
+  // array (index 0 = easy) OR the older `difficulty_levels: {easy,medium,hard}` map.
+  const level = resolveLevel(config, difficulty) || DEFAULTS.difficulty_levels[difficulty] || DEFAULTS.difficulty_levels.easy;
   const targetPairs = Math.max(1, Math.min(cards.length, level.pairs || 4));
+  const cardBack = typeof config.cardBack === 'string' && config.cardBack ? config.cardBack : '❓';
+  const cheerBank = Array.isArray(config.cheer) && config.cheer.length ? config.cheer : ['Match!', 'Great!', 'Nice one!'];
 
   const deck = useMemo(() => {
     const pool = cards.slice(0, targetPairs);
@@ -56,6 +90,7 @@ export default function MemoryMatch({ config = {}, limits = {}, stopSignal, sdk 
   const [matched, setMatched] = useState(new Set());
   const [moves, setMoves] = useState(0);
   const [timeLeft, setTimeLeft] = useState(level.time_limit);
+  const [cheer, setCheer] = useState(null);
   const startRef = useRef(Date.now());
   const finishedRef = useRef(false);
 
@@ -135,10 +170,12 @@ export default function MemoryMatch({ config = {}, limits = {}, stopSignal, sdk 
     if (next.length === 2) {
       setMoves((m) => m + 1);
       if (next[0].key === next[1].key) {
+        setCheer(cheerBank[Math.floor(Math.random() * cheerBank.length)]);
         setTimeout(() => {
           setMatched((m) => new Set([...m, next[0].id, next[1].id]));
           setFlipped([]);
         }, 400);
+        setTimeout(() => setCheer(null), 1100);
       } else {
         setTimeout(() => setFlipped([]), 800);
       }
@@ -153,6 +190,9 @@ export default function MemoryMatch({ config = {}, limits = {}, stopSignal, sdk 
         <div style={{ fontWeight: 800, color: colors.primary }}>Matched: {matched.size / 2}/{targetPairs}</div>
         {level.time_limit != null && <div style={{ fontWeight: 800, color: colors.primary }}>⏱ {timeLeft}s</div>}
       </div>
+      {cheer && (
+        <div style={{ textAlign: 'center', color: '#00b894', fontWeight: 800, marginBottom: 10 }}>{cheer}</div>
+      )}
       <div style={{
         display: 'grid',
         gridTemplateColumns: `repeat(${cols}, minmax(60px, 110px))`,
@@ -180,7 +220,7 @@ export default function MemoryMatch({ config = {}, limits = {}, stopSignal, sdk 
                 boxShadow: '0 4px 0 rgba(0,0,0,0.15)'
               }}
             >
-              {isFlipped ? c.emoji : '❓'}
+              {isFlipped ? c.emoji : cardBack}
             </div>
           );
         })}

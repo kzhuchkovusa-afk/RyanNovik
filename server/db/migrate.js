@@ -164,6 +164,15 @@ function runPhase1DataMigration() {
     for (const k of kids) ins.run(k.id);
   });
 
+  // Phase 4 — re-seed games_library so existing DBs pick up the richer
+  // config_schema (documenting the accent / cheer / soccer+racing /
+  // faces / levels / etc. fields that the games learned in Phase 4).
+  // Idempotent: the ON CONFLICT UPDATE in seedGamesLibrary just refreshes
+  // the schema JSON.
+  stamp('phase4_refresh_games_library_schema', () => {
+    seedGamesLibrary(db);
+  });
+
   // Phase 2 — one bcrypt-hashed PIN row in `parents` per client, and every
   // child of that client is linked. Default PIN is "1234" (owner rotates
   // via admin — endpoint added in the admin task).

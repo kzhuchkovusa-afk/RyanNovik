@@ -11,25 +11,37 @@ const MEMORY_MATCH = {
   config_schema: {
     fields: {
       theme: { type: 'string', example: 'dinosaurs' },
+      accent: { type: 'color', example: '#FF6B9D' },       // Phase 4
+      // Either `cards: [{name,emoji}]` OR `faces: string[]` accepted.
       cards: {
-        type: 'array', min: 4,
+        type: 'array', min: 4, optional: true,
         item: { name: 'string', emoji: 'string' },
-        example: [
-          { name: 'T-Rex', emoji: '🦖' },
-          { name: 'Triceratops', emoji: '🦕' }
-        ]
+        example: [{ name: 'T-Rex', emoji: '🦖' }]
       },
+      faces: {                                              // Phase 4
+        type: 'array', min: 4, optional: true,
+        item: 'string',
+        example: ['🦕', '🦖', '🦴']
+      },
+      cardBack: { type: 'string', optional: true, example: '🥚' },  // Phase 4
+      cheer: { type: 'array', item: 'string', optional: true, example: ['Match! 🦕'] }, // Phase 4
       colors: {
-        type: 'object',
+        type: 'object', optional: true,
         shape: { primary: 'color', secondary: 'color', background: 'color' }
       },
+      // Either `difficulty_levels` map OR `levels: [{pairs}]` array accepted.
       difficulty_levels: {
-        type: 'object',
+        type: 'object', optional: true,
         shape: {
           easy: { pairs: 'int', time_limit: 'int|null' },
           medium: { pairs: 'int', time_limit: 'int|null' },
           hard: { pairs: 'int', time_limit: 'int|null' }
         }
+      },
+      levels: {                                             // Phase 4
+        type: 'array', optional: true,
+        item: { pairs: 'int' },
+        example: [{ pairs: 4 }, { pairs: 6 }, { pairs: 8 }]
       }
     }
   }
@@ -43,17 +55,34 @@ const FOCUS_FINDER = {
   config_schema: {
     fields: {
       theme: { type: 'string', example: 'dinosaurs' },
+      accent: { type: 'color', example: '#4ECDC4' },        // Phase 4
+      displayName: { type: 'string', optional: true, example: 'Brick Hunt' },
+      // Accept string[] OR [{emoji,label}].
       items: {
         type: 'array', min: 2,
-        item: { emoji: 'string', label: 'string' },
-        example: [{ emoji: '🦖', label: 'T-Rex' }, { emoji: '🦕', label: 'Triceratops' }]
+        item: 'string | { emoji: string, label: string }',
+        example: ['🧱', '🐷', '🐮']
       },
+      oddPairs: {                                           // Phase 4
+        type: 'array', optional: true,
+        item: 'string[2]',
+        example: [['🟦', '🟥'], ['🚗', '🏎️']]
+      },
+      sceneNames: {                                         // Phase 4
+        type: 'array', item: 'string', optional: true,
+        example: ['Lego City', 'Minecraft Build']
+      },
+      winCheer: {                                           // Phase 4
+        type: 'array', item: 'string', optional: true,
+        example: ['Nice find!', 'Sharp eyes!']
+      },
+      maxLevel: { type: 'int', optional: true, example: 6 },
       colors: {
-        type: 'object',
+        type: 'object', optional: true,
         shape: { primary: 'color', secondary: 'color', background: 'color' }
       },
       difficulty_levels: {
-        type: 'object',
+        type: 'object', optional: true,
         shape: {
           easy:   { grid: 'int', rounds: 'int', time_per_round: 'int' },
           medium: { grid: 'int', rounds: 'int', time_per_round: 'int' },
@@ -71,18 +100,36 @@ const SPEED_DASH = {
   module_url: '/game-host?key=speed_dash',
   config_schema: {
     fields: {
-      theme: { type: 'string', example: 'dinosaurs' },
+      theme: { type: 'string', example: 'sports' },
+      accent: { type: 'color', example: '#FFE66D' },        // Phase 4
+      displayName: { type: 'string', optional: true, example: 'Ref Rush' },
+      // Accept either a flat `questions` array OR per-topic banks
+      // (soccer/racing/sports). Each entry: {prompt|q, options|a, correct}.
       questions: {
-        type: 'array', min: 1,
-        item: { prompt: 'string', options: 'string[]', correct: 'int' },
-        example: [{ prompt: 'Tap the 🦖!', options: ['🦖', '🥚', '🌿'], correct: 0 }]
+        type: 'array', optional: true, min: 1,
+        item: { prompt: 'string', options: 'string[]', correct: 'int' }
       },
+      soccer: {                                             // Phase 4
+        type: 'array', optional: true,
+        item: { q: 'string', a: 'string[]', correct: 'int' }
+      },
+      racing: {                                             // Phase 4
+        type: 'array', optional: true,
+        item: { q: 'string', a: 'string[]', correct: 'int' }
+      },
+      cheer: { type: 'array', item: 'string', optional: true },
+      // Adaptive timing (Phase 4 / Kirill needs a gentle ramp).
+      baseTimeMs: { type: 'int', optional: true, example: 5000 },
+      minTimeMs: { type: 'int', optional: true, example: 2200 },
+      speedStepMs: { type: 'int', optional: true, example: 300 },
+      noFailPracticeRounds: { type: 'int', optional: true, example: 3 },
+      maxLevel: { type: 'int', optional: true, example: 6 },
       colors: {
-        type: 'object',
+        type: 'object', optional: true,
         shape: { primary: 'color', secondary: 'color', background: 'color' }
       },
       difficulty_levels: {
-        type: 'object',
+        type: 'object', optional: true,
         shape: {
           easy:   { rounds: 'int', time_per_question: 'int' },
           medium: { rounds: 'int', time_per_question: 'int' },

@@ -7,6 +7,26 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 //   streakF  = clamp(bestStreak / 10, 0, 1)
 //   score    = round(100 * (0.50*acc + 0.35*speed + 0.15*streakF))
 
+// Accept both shapes: Kirill's Phase-4 config uses per-topic banks
+// (`soccer: [...], racing: [...]`) with `{q, a, correct}`; the older
+// configs use a flat `questions: [{prompt, options, correct}]`.
+function normalizeQuestions(config) {
+  const from = (item) => {
+    if (!item) return null;
+    const prompt = item.prompt ?? item.q ?? '';
+    const options = item.options ?? item.a ?? [];
+    const correct = Number(item.correct) || 0;
+    if (!prompt || !Array.isArray(options) || !options.length) return null;
+    return { prompt, options, correct };
+  };
+  const out = [];
+  if (Array.isArray(config.questions)) out.push(...config.questions.map(from).filter(Boolean));
+  for (const bankKey of ['soccer', 'racing', 'sports']) {
+    if (Array.isArray(config[bankKey])) out.push(...config[bankKey].map(from).filter(Boolean));
+  }
+  return out.length ? out : null;
+}
+
 const DEFAULTS = {
   questions: [
     { prompt: 'Tap the 🍎', options: ['🍎', '🍊', '🍋'], correct: 0 },
@@ -31,13 +51,34 @@ function shuffle(arr) {
 }
 
 export default function SpeedDash({ config = {}, stopSignal, sdk }) {
-  const src = config.questions && config.questions.length ? config.questions : DEFAULTS.questions;
-  const colors = { ...DEFAULTS.colors, ...(config.colors || {}) };
+  // Kirill's Phase-4 config splits questions into `soccer` + `racing`
+  // banks with `{q, a, correct}`; older configs use a flat `questions`
+  // array with `{prompt, options, correct}`. Normalize.
+  const src = normalizeQuestions(config) || DEFAULTS.questions;
+  const colors = {
+    ...DEFAULTS.colors,
+    ...(config.colors || {}),
+    ...(config.accent ? { primary: config.accent } : {})
+  };
   const difficulty = config.difficulty || 'easy';
   const level = (config.difficulty_levels && config.difficulty_levels[difficulty]) || DEFAULTS.difficulty_levels[difficulty] || DEFAULTS.difficulty_levels.easy;
-  const totalRounds = Math.max(1, level.rounds || 6);
+  const totalRounds = Math.max(1, Math.min(config.maxLevel ? config.maxLevel * 2 : Infinity, level.rounds || 6));
+  const cheerBank = Array.isArray(config.cheer) && config.cheer.length ? config.cheer : ['Fast!', 'Nice!', 'Sharp!'];
+
+  // Adaptive timing (Phase-4): baseTimeMs shrinks toward minTimeMs by
+  // speedStepMs per round after the no-fail practice window.
+  const baseMs = Number(config.baseTimeMs) || (level.time_per_question * 1000) || 5000;
+  const minMs = Number(config.minTimeMs) || 2000;
+  const stepMs = Number(config.speedStepMs) || 0;
+  const noFailRounds = Math.max(0, Number(config.noFailPracticeRounds) || 0);
+  const secondsForRound = (r) => {
+    if (r < noFailRounds) return baseMs / 1000;
+    const stepped = Math.max(minMs, baseMs - stepMs * (r - noFailRounds));
+    return stepped / 1000;
+  };
 
   const queue = useMemo(() => {
+    if (!src.length) return [];
     const out = [];
     while (out.length < totalRounds) out.push(...shuffle(src));
     return out.slice(0, totalRounds);
@@ -45,7 +86,8 @@ export default function SpeedDash({ config = {}, stopSignal, sdk }) {
 
   const [round, setRound] = useState(0);
   const [correctCount, setCorrectCount] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(level.time_per_question);
+  const [timeLeft, setTimeLeft] = useState(secondsForRound(0));
+  const [cheer, setCheer] = useState(null);
   const [picked, setPicked] = useState(null);
   const reactionsRef = useRef([]);  // ms per correct answer
   const streakRef = useRef({ current: 0, best: 0 });
@@ -54,8 +96,9 @@ export default function SpeedDash({ config = {}, stopSignal, sdk }) {
   const finishedRef = useRef(false);
 
   useEffect(() => {
-    setTimeLeft(level.time_per_question);
+    setTimeLeft(secondsForRound(round));
     setPicked(null);
+    setCheer(null);
     roundStartRef.current = Date.now();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [round]);
@@ -111,6 +154,7 @@ export default function SpeedDash({ config = {}, stopSignal, sdk }) {
     const isCorrect = q && i === q.correct;
     if (isCorrect) {
       setCorrectCount((c) => c + 1);
+      setCheer(cheerBank[Math.floor(Math.random() * cheerBank.length)]);
       const rt = Date.now() - (roundStartRef.current || Date.now());
       reactionsRef.current.push(rt);
       streakRef.current.current += 1;
@@ -127,7 +171,8 @@ export default function SpeedDash({ config = {}, stopSignal, sdk }) {
 
   const q = queue[round];
   if (!q) return <div style={{ padding: 24 }}>No questions configured.</div>;
-  const pct = Math.max(0, (timeLeft / (level.time_per_question || 1)) * 100);
+  const pct = Math.max(0, (timeLeft / secondsForRound(round)) * 100);
+  const isPractice = round < noFailRounds;
 
   return (
     <div style={{ minHeight: '100vh', background: colors.background, padding: 16, fontFamily: 'system-ui, sans-serif' }}>
@@ -139,9 +184,17 @@ export default function SpeedDash({ config = {}, stopSignal, sdk }) {
       <div style={{ maxWidth: 700, margin: '0 auto 14px', height: 10, background: 'rgba(0,0,0,0.08)', borderRadius: 999, overflow: 'hidden' }}>
         <div style={{ height: '100%', width: `${pct}%`, background: colors.secondary || colors.primary, transition: 'width .1s linear' }} />
       </div>
+      {isPractice && (
+        <div style={{ textAlign: 'center', color: '#00b894', fontWeight: 700, fontSize: 13 }}>
+          ✨ Practice round — no rush!
+        </div>
+      )}
       <div style={{ textAlign: 'center', fontSize: 26, fontWeight: 700, margin: '16px 0', color: colors.primary }}>
         {q.prompt}
       </div>
+      {cheer && (
+        <p style={{ textAlign: 'center', color: '#00b894', fontWeight: 800, fontSize: 18, marginTop: -8 }}>{cheer}</p>
+      )}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
