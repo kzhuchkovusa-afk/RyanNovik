@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import Landing from './components/shared/Landing.jsx';
 import Login from './components/shared/Login.jsx';
 import EnterViaLink from './components/shared/EnterViaLink.jsx';
+import InstallHint from './components/shared/InstallHint.jsx';
 import ChildHub from './components/child/ChildHub.jsx';
 import GamePlayer from './components/child/GamePlayer.jsx';
 import ParentGate from './components/parent/ParentGate.jsx';
@@ -23,6 +24,8 @@ function Protected({ roles, children }) {
 
 export default function App() {
   return (
+    <>
+      <InstallHint />
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
@@ -95,5 +98,6 @@ export default function App() {
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </>
   );
 }

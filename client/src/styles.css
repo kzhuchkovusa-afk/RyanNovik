@@ -13,15 +13,40 @@
   --danger: #e17055;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+  /* iOS hardening: kill the grey tap flash + prevent double-tap zoom
+     on interactive elements. */
+  -webkit-tap-highlight-color: transparent;
+}
 
 html, body, #root { height: 100%; margin: 0; }
+
+html {
+  /* Prevent iOS Safari pinch-zoom on interactive surfaces without
+     denying users their reader-mode zoom on plain content. */
+  touch-action: manipulation;
+}
 
 body {
   font-family: 'Comic Sans MS', 'Trebuchet MS', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
+  /* Respect the iPhone notch + home indicator when running standalone. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+           env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* Buttons should be at least 44×44 (Apple's minimum) — most already are;
+   this is a safety net for anything that slipped through. */
+button {
+  min-height: 44px;
+  touch-action: manipulation;
+}
+/* No :hover-only interactions: iOS "sticks" hover, which surprises kids. */
+@media (hover: none) {
+  .game-card:hover { transform: none; box-shadow: 0 8px 24px rgba(0,0,0,0.08); border-color: transparent; }
 }
 
 button {
